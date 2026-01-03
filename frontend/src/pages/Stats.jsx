@@ -859,6 +859,11 @@ const ChannelCard = ({
       {
         header: 'IP Address',
         accessorKey: 'ip_address',
+        cell: ({ cell, row }) => (
+          <Text size="xs" style={{ wordBreak: 'break-all', flex: 1 }}>
+            {cell.getValue()}
+          </Text>
+        ),
       },
       {
         header: 'User',
