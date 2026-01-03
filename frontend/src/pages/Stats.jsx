@@ -8,7 +8,6 @@ import {
   Container,
   Flex,
   Group,
-  Pagination,
   Progress,
   SimpleGrid,
   Stack,
@@ -26,11 +25,9 @@ import useLogosStore from '../store/logos';
 import logo from '../images/logo.png';
 import {
   ChevronDown,
-  CirclePlay,
   Gauge,
   HardDriveDownload,
   HardDriveUpload,
-  RefreshCw,
   SquareX,
   Timer,
   Users,
@@ -47,7 +44,6 @@ import { useLocation } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
 import { CustomTable, useTable } from '../components/tables/CustomTable';
 import useLocalStorage from '../hooks/useLocalStorage';
-import SystemEvents from '../components/SystemEvents';
 
 dayjs.extend(duration);
 dayjs.extend(relativeTime);
@@ -89,7 +85,7 @@ const getStartDate = (uptime) => {
 };
 
 // Create a VOD Card component similar to ChannelCard
-const VODCard = ({ vodContent, stopVODClient }) => {
+const VODCard = ({ vodContent }) => {
   const [dateFormatSetting] = useLocalStorage('date-format', 'mdy');
   const dateFormat = dateFormatSetting === 'mdy' ? 'MM/DD' : 'DD/MM';
   const [isClientExpanded, setIsClientExpanded] = useState(false);
@@ -288,13 +284,13 @@ const VODCard = ({ vodContent, stopVODClient }) => {
       padding="md"
       radius="md"
       withBorder
-      style={{
-        color: '#fff',
-        backgroundColor: '#27272A',
-        maxWidth: '700px',
-        width: '100%',
-      }}
-    >
+        style={{
+          color: '#fff',
+          backgroundColor: '#27272A',
+          maxWidth: '760px',
+          width: '100%',
+        }}
+      >
       <Stack style={{ position: 'relative' }}>
         {/* Header with poster and basic info */}
         <Group justify="space-between">
@@ -302,7 +298,7 @@ const VODCard = ({ vodContent, stopVODClient }) => {
             style={{
               //width: '150px',
               height: '100px',
-              display: 'flex',
+              maxWidth: '760px',
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -328,19 +324,6 @@ const VODCard = ({ vodContent, stopVODClient }) => {
                   {calculateConnectionDuration(connection)}
                 </Center>
               </Tooltip>
-            )}
-            {connection && stopVODClient && (
-              <Center>
-                <Tooltip label="Stop VOD Connection">
-                  <ActionIcon
-                    variant="transparent"
-                    color="red.9"
-                    onClick={() => stopVODClient(connection.client_id)}
-                  >
-                    <SquareX size="24" />
-                  </ActionIcon>
-                </Tooltip>
-              </Center>
             )}
           </Group>
         </Group>
@@ -464,11 +447,11 @@ const VODCard = ({ vodContent, stopVODClient }) => {
               }}
               onClick={() => setIsClientExpanded(!isClientExpanded)}
             >
-              <Group gap={8}>
+              <Group gap={8} style={{ flex: 1, minWidth: 0 }}>
                 <Text size="sm" fw={500} color="dimmed">
                   Client:
                 </Text>
-                <Text size="sm" style={{ fontFamily: 'monospace' }}>
+                <Text size="sm" style={{ fontFamily: 'monospace', wordBreak: 'break-all', flex: 1 }}>
                   {connection.client_ip || 'Unknown IP'}
                 </Text>
               </Group>
@@ -481,8 +464,8 @@ const VODCard = ({ vodContent, stopVODClient }) => {
                   size={16}
                   style={{
                     transform: isClientExpanded
-                      ? 'rotate(0deg)'
-                      : 'rotate(180deg)',
+                      ? 'rotate(180deg)'
+                      : 'rotate(0deg)',
                     transition: 'transform 0.2s',
                   }}
                 />
@@ -877,6 +860,44 @@ const ChannelCard = ({
         header: 'IP Address',
         accessorKey: 'ip_address',
       },
+      {
+        header: 'User',
+        id: 'user',
+        accessorFn: (row) => {
+          // Show username if XC API access
+          if (row.username) {
+            return row.username;
+          }
+          // Show access type (M3U or HDHR)
+          if (row.access_type) {
+            return row.access_type;
+          }
+          // Default
+          return 'Unknown';
+        },
+        cell: ({ cell, row }) => {
+          const value = cell.getValue();
+          const isXC = row.original.access_type === 'XC';
+          const isHDHR = row.original.access_type === 'HDHR';
+          const isM3U = row.original.access_type === 'M3U';
+          
+          return (
+            <Tooltip
+              label={
+                isXC
+                  ? `XC API User: ${value}`
+                  : isHDHR
+                    ? 'HDHomeRun Access'
+                    : isM3U
+                      ? 'M3U Playlist Access'
+                      : 'Unknown Access Type'
+              }
+            >
+              <Text size="xs">{value}</Text>
+            </Tooltip>
+          );
+        },
+      },
       // Updated Connected column with tooltip
       {
         id: 'connected',
@@ -969,6 +990,7 @@ const ChannelCard = ({
     }),
     headerCellRenderFns: {
       ip_address: renderHeaderCell,
+      user: renderHeaderCell,
       connected: renderHeaderCell,
       duration: renderHeaderCell,
       actions: renderHeaderCell,
@@ -986,7 +1008,7 @@ const ChannelCard = ({
             <Text size="xs" fw={500} color="dimmed">
               User Agent:
             </Text>
-            <Text size="xs">{row.original.user_agent || 'Unknown'}</Text>
+            <Text size="xs" style={{ wordBreak: 'break-word', flex: 1 }}>{row.original.user_agent || 'Unknown'}</Text>
           </Group>
         </Box>
       );
@@ -1276,7 +1298,11 @@ const ChannelCard = ({
           </Group>
         </Group>
 
-        <CustomTable table={channelClientsTable} />
+        <Box style={{ width: '100%', overflowX: 'auto', display: 'flex', justifyContent: 'center' }}>
+          <Box style={{ width: '100%' }}>
+            <CustomTable table={channelClientsTable} />
+          </Box>
+        </Box>
       </Stack>
     </Card>
   );
@@ -1308,12 +1334,6 @@ const ChannelsPage = () => {
 
   const stopClient = async (channelId, clientId) => {
     await API.stopClient(channelId, clientId);
-  };
-
-  const stopVODClient = async (clientId) => {
-    await API.stopVODClient(clientId);
-    // Refresh VOD stats after stopping to update the UI
-    fetchVODStats();
   };
 
   // Function to fetch channel stats from API
@@ -1505,136 +1525,108 @@ const ChannelsPage = () => {
   }, [channelHistory, vodConnections]);
 
   return (
-    <>
-      <Box style={{ overflowX: 'auto' }}>
-        <Box style={{ minWidth: '520px' }}>
-          <Box style={{ padding: '10px', borderBottom: '1px solid #444' }}>
-            <Group justify="space-between" align="center">
-              <Title order={3}>Active Connections</Title>
-              <Group align="center">
+    <Box style={{ overflowX: 'auto' }}>
+      <Box style={{ padding: '10px', borderBottom: '1px solid #444' }}>
+        <Group justify="space-between" align="center">
+          <Title order={3}>Active Connections</Title>
+          <Group align="center">
+            <Text size="sm" c="dimmed">
+              {Object.keys(channelHistory).length} stream
+              {Object.keys(channelHistory).length !== 1 ? 's' : ''} •{' '}
+              {vodConnections.reduce(
+                (total, vodContent) =>
+                  total + (vodContent.connections?.length || 0),
+                0
+              )}{' '}
+              VOD connection
+              {vodConnections.reduce(
+                (total, vodContent) =>
+                  total + (vodContent.connections?.length || 0),
+                0
+              ) !== 1
+                ? 's'
+                : ''}
+            </Text>
+            <Group align="center" gap="xs">
+              <Text size="sm">Refresh Interval (seconds):</Text>
+              <NumberInput
+                value={refreshIntervalSeconds}
+                onChange={(value) => setRefreshIntervalSeconds(value || 0)}
+                min={0}
+                max={300}
+                step={1}
+                size="xs"
+                style={{ width: 120 }}
+              />
+              {refreshIntervalSeconds === 0 && (
                 <Text size="sm" c="dimmed">
-                  {Object.keys(channelHistory).length} stream
-                  {Object.keys(channelHistory).length !== 1 ? 's' : ''} •{' '}
-                  {vodConnections.reduce(
-                    (total, vodContent) =>
-                      total + (vodContent.connections?.length || 0),
-                    0
-                  )}{' '}
-                  VOD connection
-                  {vodConnections.reduce(
-                    (total, vodContent) =>
-                      total + (vodContent.connections?.length || 0),
-                    0
-                  ) !== 1
-                    ? 's'
-                    : ''}
+                  Refreshing disabled
                 </Text>
-                <Group align="center" gap="xs">
-                  <Text size="sm">Refresh Interval (seconds):</Text>
-                  <NumberInput
-                    value={refreshIntervalSeconds}
-                    onChange={(value) => setRefreshIntervalSeconds(value || 0)}
-                    min={0}
-                    max={300}
-                    step={1}
-                    size="xs"
-                    style={{ width: 120 }}
-                  />
-                  {refreshIntervalSeconds === 0 && (
-                    <Text size="sm" c="dimmed">
-                      Refreshing disabled
-                    </Text>
-                  )}
-                </Group>
-                {isPollingActive && refreshInterval > 0 && (
-                  <Text size="sm" c="dimmed">
-                    Refreshing every {refreshIntervalSeconds}s
-                  </Text>
-                )}
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  onClick={() => {
-                    fetchChannelStats();
-                    fetchVODStats();
-                  }}
-                  loading={false}
-                >
-                  Refresh Now
-                </Button>
-              </Group>
+              )}
             </Group>
-          </Box>
-          <Box
-            style={{
-              display: 'grid',
-              gap: '1rem',
-              padding: '10px',
-              paddingBottom: '120px',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(500px, 1fr))',
-              minHeight: 'calc(100vh - 250px)',
-              alignContent: 'start',
-            }}
-          >
-            {combinedConnections.length === 0 ? (
-              <Box
-                style={{
-                  gridColumn: '1 / -1',
-                  textAlign: 'center',
-                  padding: '40px',
-                }}
-              >
-                <Text size="xl" color="dimmed">
-                  No active connections
-                </Text>
-              </Box>
-            ) : (
-              combinedConnections.map((connection) => {
-                if (connection.type === 'stream') {
-                  return (
-                    <ChannelCard
-                      key={connection.id}
-                      channel={connection.data}
-                      clients={clients}
-                      stopClient={stopClient}
-                      stopChannel={stopChannel}
-                      logos={logos}
-                      channelsByUUID={channelsByUUID}
-                    />
-                  );
-                } else if (connection.type === 'vod') {
-                  return (
-                    <VODCard
-                      key={connection.id}
-                      vodContent={connection.data}
-                      stopVODClient={stopVODClient}
-                    />
-                  );
-                }
-                return null;
-              })
+            {isPollingActive && refreshInterval > 0 && (
+              <Text size="sm" c="dimmed">
+                Refreshing every {refreshIntervalSeconds}s
+              </Text>
             )}
-          </Box>
-        </Box>
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={() => {
+                fetchChannelStats();
+                fetchVODStats();
+              }}
+              loading={false}
+            >
+              Refresh Now
+            </Button>
+          </Group>
+        </Group>
       </Box>
-
-      {/* System Events Section - Fixed at bottom */}
-      <Box
+      <div
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 'var(--app-shell-navbar-width, 0)',
-          right: 0,
-          zIndex: 100,
-          padding: '0 1rem 1rem 1rem',
-          pointerEvents: 'none',
+          display: 'grid',
+          gap: '1rem',
+          padding: '10px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(500px, 1fr))',
         }}
       >
-        <Box style={{ pointerEvents: 'auto' }}>
-          <SystemEvents />
-        </Box>
-      </Box>
-    </>
+        {combinedConnections.length === 0 ? (
+          <Box
+            style={{
+              gridColumn: '1 / -1',
+              textAlign: 'center',
+              padding: '40px',
+            }}
+          >
+            <Text size="xl" color="dimmed">
+              No active connections
+            </Text>
+          </Box>
+        ) : (
+          combinedConnections.map((connection) => {
+            if (connection.type === 'stream') {
+              return (
+                <ChannelCard
+                  key={connection.id}
+                  channel={connection.data}
+                  clients={clients}
+                  stopClient={stopClient}
+                  stopChannel={stopChannel}
+                  logos={logos}
+                  channelsByUUID={channelsByUUID}
+                />
+              );
+            } else if (connection.type === 'vod') {
+              return (
+                <VODCard key={connection.id} vodContent={connection.data} />
+              );
+            }
+            return null;
+          })
+        )}
+      </div>
+    </Box>
   );
 };
 
