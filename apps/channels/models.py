@@ -100,13 +100,13 @@ class Stream(models.Model):
     stream_stats = models.JSONField(
         null=True,
         blank=True,
-        help_text="JSON object containing stream statistics like video codec, resolution, etc."
+        help_text="JSON object containing stream statistics like video codec, resolution, etc.",
     )
     stream_stats_updated_at = models.DateTimeField(
         null=True,
         blank=True,
         help_text="When stream statistics were last updated",
-        db_index=True
+        db_index=True,
     )
 
     class Meta:
@@ -123,7 +123,13 @@ class Stream(models.Model):
         if keys is None:
             keys = CoreSettings.get_m3u_hash_key().split(",")
 
-        stream_parts = {"name": name, "url": url, "tvg_id": tvg_id, "m3u_id": m3u_id, "group": group}
+        stream_parts = {
+            "name": name,
+            "url": url,
+            "tvg_id": tvg_id,
+            "m3u_id": m3u_id,
+            "group": group,
+        }
 
         hash_parts = {key: stream_parts[key] for key in keys if key in stream_parts}
 
@@ -165,54 +171,6 @@ class Stream(models.Model):
         )
 
         return stream_profile
-
-    def get_stream(self):
-        """
-        Finds an available stream for the requested channel and returns the selected stream and profile.
-        """
-        redis_client = RedisClient.get_client()
-        profile_id = redis_client.get(f"stream_profile:{self.id}")
-        if profile_id:
-            profile_id = int(profile_id)
-            return self.id, profile_id, None
-
-        # Retrieve the M3U account associated with the stream.
-        m3u_account = self.m3u_account
-        m3u_profiles = m3u_account.profiles.all()
-        default_profile = next((obj for obj in m3u_profiles if obj.is_default), None)
-        profiles = [default_profile] + [
-            obj for obj in m3u_profiles if not obj.is_default
-        ]
-
-        for profile in profiles:
-            logger.info(profile)
-            # Skip inactive profiles
-            if profile.is_active == False:
-                continue
-
-            profile_connections_key = f"profile_connections:{profile.id}"
-            current_connections = int(redis_client.get(profile_connections_key) or 0)
-
-            # Check if profile has available slots (or unlimited connections)
-            if profile.max_streams == 0 or current_connections < profile.max_streams:
-                # Start a new stream
-                redis_client.set(f"channel_stream:{self.id}", self.id)
-                redis_client.set(
-                    f"stream_profile:{self.id}", profile.id
-                )  # Store only the matched profile
-
-                # Increment connection count for profiles with limits
-                if profile.max_streams > 0:
-                    redis_client.incr(profile_connections_key)
-
-                return (
-                    self.id,
-                    profile.id,
-                    None,
-                )  # Return newly assigned stream and matched profile
-
-        # 4. No available streams
-        return None, None, None
 
     def release_stream(self):
         """
@@ -298,7 +256,7 @@ class Channel(models.Model):
 
     auto_created = models.BooleanField(
         default=False,
-        help_text="Whether this channel was automatically created via M3U auto channel sync"
+        help_text="Whether this channel was automatically created via M3U auto channel sync",
     )
     auto_created_by = models.ForeignKey(
         "m3u.M3UAccount",
@@ -306,16 +264,14 @@ class Channel(models.Model):
         null=True,
         blank=True,
         related_name="auto_created_channels",
-        help_text="The M3U account that auto-created this channel"
+        help_text="The M3U account that auto-created this channel",
     )
 
     created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="Timestamp when this channel was created"
+        auto_now_add=True, help_text="Timestamp when this channel was created"
     )
     updated_at = models.DateTimeField(
-        auto_now=True,
-        help_text="Timestamp when this channel was last updated"
+        auto_now=True, help_text="Timestamp when this channel was last updated"
     )
 
     def clean(self):
@@ -348,6 +304,71 @@ class Channel(models.Model):
             )
 
         return stream_profile
+
+    def _check_and_reserve_profile_slot(
+        self, profile, redis_client
+    ) -> tuple[bool, int]:
+        """Atomically check and reserve a profile slot using Lua script
+
+        This eliminates the TOCTOU race condition by checking and incrementing
+        in a single atomic operation. This prevents multiple concurrent requests
+        from passing the capacity check simultaneously.
+
+        Note: For profiles with max_streams=0 (unlimited), no atomic check is needed
+        since there's no limit to enforce. We return success without incrementing.
+
+        Args:
+            profile: M3UAccountProfile instance
+            redis_client: Redis client instance
+
+        Returns:
+            tuple: (success: bool, count: int)
+                - success: True if slot was reserved, False if at capacity
+                - count: Current connection count after operation (or 0 for unlimited)
+        """
+        # For unlimited profiles, no need to check/increment
+        if profile.max_streams == 0:
+            logger.debug(
+                f"[PROFILE-RESERVE] Profile {profile.id} has unlimited streams, skipping reservation"
+            )
+            return (True, 0)
+
+        lua_script = """
+        local key = KEYS[1]
+        local max_streams = tonumber(ARGV[1])
+        local current = tonumber(redis.call('GET', key) or 0)
+
+        if current < max_streams then
+            local new_count = redis.call('INCR', key)
+            return {1, new_count}
+        else
+            return {0, current}
+        end
+        """
+
+        try:
+            profile_connections_key = f"profile_connections:{profile.id}"
+            result = redis_client.eval(
+                lua_script, 1, profile_connections_key, profile.max_streams
+            )
+
+            success = bool(result[0])
+            count = int(result[1])
+
+            if success:
+                logger.info(
+                    f"[PROFILE-RESERVE] Reserved slot in profile {profile.id}: {count}/{profile.max_streams}"
+                )
+            else:
+                logger.debug(
+                    f"[PROFILE-RESERVE] Profile {profile.id} at capacity: {count}/{profile.max_streams}"
+                )
+
+            return (success, count)
+
+        except Exception as e:
+            logger.error(f"Error checking and reserving profile slot: {e}")
+            return (False, 0)
 
     def get_stream(self):
         """
@@ -404,7 +425,9 @@ class Channel(models.Model):
             )
 
             if not default_profile:
-                logger.debug(f"M3U account {m3u_account.id} has no active default profile")
+                logger.debug(
+                    f"M3U account {m3u_account.id} has no active default profile"
+                )
                 continue
 
             profiles = [default_profile] + [
@@ -414,39 +437,56 @@ class Channel(models.Model):
             for profile in profiles:
                 has_active_profiles = True
 
-                profile_connections_key = f"profile_connections:{profile.id}"
-                current_connections = int(
-                    redis_client.get(profile_connections_key) or 0
+                # Atomically check and reserve a profile slot
+                reserved, current_count = self._check_and_reserve_profile_slot(
+                    profile, redis_client
                 )
 
-                # Check if profile has available slots (or unlimited connections)
-                if (
-                    profile.max_streams == 0
-                    or current_connections < profile.max_streams
-                ):
-                    # Start a new stream
-                    redis_client.set(f"channel_stream:{self.id}", stream.id)
-                    redis_client.set(f"stream_profile:{stream.id}", profile.id)
+                if reserved:
+                    try:
+                        # Slot reserved - assign stream to this channel
+                        redis_client.set(f"channel_stream:{self.id}", stream.id)
+                        redis_client.set(f"stream_profile:{stream.id}", profile.id)
 
-                    # Increment connection count for profiles with limits
-                    if profile.max_streams > 0:
-                        redis_client.incr(profile_connections_key)
+                        logger.info(
+                            f"[CHANNEL-{self.id}] Assigned stream {stream.id} with profile {profile.id} "
+                            f"({current_count}/{profile.max_streams} connections)"
+                        )
 
-                    return (
-                        stream.id,
-                        profile.id,
-                        None,
-                    )  # Return newly assigned stream and matched profile
+                        return (
+                            stream.id,
+                            profile.id,
+                            None,
+                        )  # Return newly assigned stream and matched profile
+
+                    except Exception as e:
+                        # Release the reserved slot since we failed to assign the stream
+                        # This prevents slot leaks that cause false "at capacity" errors
+                        profile_connections_key = f"profile_connections:{profile.id}"
+                        try:
+                            redis_client.decr(profile_connections_key)
+                            logger.warning(
+                                f"[CHANNEL-{self.id}] Failed to assign stream {stream.id}, "
+                                f"released reserved slot for profile {profile.id}. Error: {e}"
+                            )
+                        except Exception as decrement_error:
+                            logger.error(
+                                f"[CHANNEL-{self.id}] CRITICAL: Failed to assign stream AND failed to release slot! "
+                                f"Profile {profile.id} slot may be leaked. Decrement error: {decrement_error}"
+                            )
+                        raise
                 else:
-                    # This profile is at max connections
+                    # Profile at capacity
                     has_streams_but_maxed_out = True
                     logger.debug(
-                        f"Profile {profile.id} at max connections: {current_connections}/{profile.max_streams}"
+                        f"Profile {profile.id} at max connections: {current_count}/{profile.max_streams}"
                     )
 
         # No available streams - determine specific reason
         if has_streams_but_maxed_out:
-            error_reason = "All active M3U profiles have reached maximum connection limits"
+            error_reason = (
+                "All active M3U profiles have reached maximum connection limits"
+            )
         elif has_active_profiles:
             error_reason = "No compatible active profile found for any assigned stream"
         else:
@@ -582,12 +622,12 @@ class ChannelGroupM3UAccount(models.Model):
     enabled = models.BooleanField(default=True)
     auto_channel_sync = models.BooleanField(
         default=False,
-        help_text='Automatically create/delete channels to match streams in this group'
+        help_text="Automatically create/delete channels to match streams in this group",
     )
     auto_sync_channel_start = models.FloatField(
         null=True,
         blank=True,
-        help_text='Starting channel number for auto-created channels in this group'
+        help_text="Starting channel number for auto-created channels in this group",
     )
 
     class Meta:
@@ -645,6 +685,8 @@ class RecurringRecordingRule(models.Model):
 
     def cleaned_days(self):
         try:
-            return sorted({int(d) for d in (self.days_of_week or []) if 0 <= int(d) <= 6})
+            return sorted(
+                {int(d) for d in (self.days_of_week or []) if 0 <= int(d) <= 6}
+            )
         except Exception:
             return []
