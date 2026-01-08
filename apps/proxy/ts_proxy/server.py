@@ -784,13 +784,19 @@ class ProxyServer:
             # Force release resources in the Channel model
             try:
                 channel = Channel.objects.get(uuid=channel_id)
-                channel.release_stream()
-                logger.info(f"Released stream allocation for zombie channel {channel_id}")
+                success = channel.release_stream()
+                if success:
+                    logger.info(f"Released stream allocation for zombie channel {channel_id}")
+                    else:
+                        logger.warning(f"Failed to release stream for channel {channel_id}")
             except Exception as e:
                 try:
                     stream = Stream.objects.get(stream_hash=channel_id)
-                    stream.release_stream()
-                    logger.info(f"Released stream allocation for zombie channel {channel_id}")
+                    success = stream.release_stream()
+                    if success:
+                        logger.info(f"Released stream allocation for zombie channel {channel_id}")
+                        else:
+                            logger.warning(f"Failed to release stream for channel {channel_id}")
                 except Exception as e:
                     logger.error(f"Error releasing stream for zombie channel {channel_id}: {e}")
 

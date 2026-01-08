@@ -265,14 +265,20 @@ class ChannelService:
         # Release the channel in the channel model if applicable
         try:
             channel = Channel.objects.get(uuid=channel_id)
-            channel.release_stream()
-            logger.info(f"Released channel {channel_id} stream allocation")
+            success = channel.release_stream()
+            if success:
+                logger.info(f"Released channel {channel_id} stream allocation")
+            else:
+                logger.warning(f"Failed to release stream for channel {channel_id}")
             model_released = True
         except Channel.DoesNotExist:
             logger.warning(f"Could not find Channel model for UUID {channel_id}, attempting stream hash")
             stream = Stream.objects.get(stream_hash=channel_id)
-            stream.release_stream()
-            logger.info(f"Released stream {channel_id} stream allocation")
+            success = stream.release_stream()
+            if success:
+                logger.info(f"Released stream {channel_id} stream allocation")
+            else:
+                logger.warning(f"Failed to release stream for channel {channel_id}")
             model_released = True
         except Exception as e:
             logger.error(f"Error releasing channel stream: {e}")

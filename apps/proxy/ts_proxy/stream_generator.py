@@ -441,10 +441,13 @@ class StreamGenerator:
                                 try:
                                     # Get the channel by UUID
                                     channel = Channel.objects.get(uuid=self.channel_id)
-                                    channel.release_stream()
+                                    success = channel.release_stream()
+                                    if success:
+                                        stream_released = True
+                                        logger.debug(f"[{self.client_id}] Released stream for channel {self.channel_id}")
+                                    else:
+                                        logger.warning(f"[{self.client_id}] Failed to properly release stream for channel {self.channel_id} - connection counter may have leaked")
                                     stream_released = True
-                                    logger.debug(f"[{self.client_id}] Released stream for channel {self.channel_id}")
-                                except Exception as e:
                                     logger.error(f"[{self.client_id}] Error releasing stream for channel {self.channel_id}: {e}")
             except Exception as e:
                 logger.error(f"[{self.client_id}] Error checking stream data for release: {e}")
