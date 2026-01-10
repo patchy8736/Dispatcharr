@@ -786,14 +786,14 @@ class ProxyServer:
                 channel = Channel.objects.get(uuid=channel_id)
                 success = channel.release_stream()
                 if not success:
-                    logger.warning(f"Failed to release stream for channel {channel_id}")
+                    logger.info(f"Failed to release stream for channel {channel_id}")
                 logger.info(f"Released stream allocation for zombie channel {channel_id}")
             except Exception as e:
                 try:
                     stream = Stream.objects.get(stream_hash=channel_id)
                     success = stream.release_stream()
                     if not success:
-                        logger.warning(f"Failed to release stream for channel {channel_id}")
+                        logger.info(f"Failed to release stream for channel {channel_id}")
                     logger.info(f"Released stream allocation for zombie channel {channel_id}")
                 except Exception as e:
                     logger.error(f"Error releasing stream for zombie channel {channel_id}: {e}")
@@ -1341,12 +1341,12 @@ class ProxyServer:
             channel = Channel.objects.get(uuid=channel_id)
             success = channel.release_stream()
             if not success:
-                logger.warning(f"Failed to release stream for channel {channel_id}")
+                logger.info(f"Failed to release stream for channel {channel_id}")
         except:
             stream = Stream.objects.get(stream_hash=channel_id)
             success = stream.release_stream()
             if not success:
-                logger.warning(f"Failed to release stream for channel {channel_id}")
+                logger.info(f"Failed to release stream for channel {channel_id}")
 
         if not self.redis_client:
             return 0

@@ -310,7 +310,7 @@ def stream_ts(request, channel_id):
                 # Release stream lock before redirecting
                 success = channel.release_stream()
                 if not success:
-                    logger.warning(f"Failed to release stream for channel {channel_id}")
+                    logger.info(f"Failed to release stream for channel {channel_id}")
                 # Final decision based on validation results
                 if is_valid:
                     logger.info(
