@@ -458,8 +458,8 @@ class Channel(models.Model):
                         redis_client.set(f"stream_profile:{stream.id}", profile.id)
 
                         logger.info(
-                            f"[CHANNEL-{self.id}] Assigned stream {stream.id} with profile {profile.id} "
-                            f"({current_count}/{profile.max_streams} connections)"
+                            f"Assigned stream {stream.id} with profile {profile.id} "
+                            f"({current_count}/{profile.max_streams} connections) for channel {self.uuid}"
                         )
 
                         return (
@@ -475,12 +475,12 @@ class Channel(models.Model):
                         try:
                             redis_client.decr(profile_connections_key)
                             logger.warning(
-                                f"[CHANNEL-{self.id}] Failed to assign stream {stream.id}, "
+                                f"Failed to assign stream {stream.id} for channel {self.uuid}, "
                                 f"released reserved slot for profile {profile.id}. Error: {e}"
                             )
                         except Exception as decrement_error:
                             logger.error(
-                                f"[CHANNEL-{self.id}] CRITICAL: Failed to assign stream AND failed to release slot! "
+                                f"CRITICAL: Failed to assign stream for channel {self.uuid} AND failed to release slot! "
                                 f"Profile {profile.id} slot may be leaked. Decrement error: {decrement_error}"
                             )
                         raise
@@ -522,9 +522,9 @@ class Channel(models.Model):
             metadata_key = RedisKeys.channel_metadata(self.id)
             stream_id = redis_client.hget(metadata_key, ChannelMetadataField.STREAM_ID)
             if not stream_id:
-                logger.warning(
-                    f"[CHANNEL-{self.id}] No stream ID found in primary or metadata hash "
-                    f"(likely no active stream to release)"
+                logger.info(
+                    f"No stream ID found in primary or metadata hash "
+                    f"(likely no active stream to release) for channel {self.uuid}"
                 )
                 return False
 
@@ -535,12 +535,12 @@ class Channel(models.Model):
             stream_id = int(stream_id)
         except (ValueError, AttributeError) as e:
             logger.error(
-                f"[CHANNEL-{self.id}] Invalid stream_id type: {e}, value: {stream_id}"
+                f"Invalid stream_id type: {e}, value: {stream_id} for channel {self.uuid}"
             )
             return False
 
         logger.debug(
-            f"[CHANNEL-{self.id}] Found stream ID {stream_id} associated with channel"
+            f"Found stream ID {stream_id} for channel {self.uuid}"
         )
 
         # Step 2: Get profile ID with metadata hash fallback
@@ -553,14 +553,14 @@ class Channel(models.Model):
             )
             if not profile_id:
                 logger.info(
-                    f"[CHANNEL-{self.id}] No profile ID found in primary or metadata hash "
-                    f"(orphaned allocation for stream {stream_id})"
+                    f"No profile ID found in primary or metadata hash "
+                    f"(orphaned allocation for stream {stream_id}) for channel {self.uuid}"
                 )
                 # Don't return False yet - try to clean up primary keys
             else:
                 logger.info(
-                    f"[CHANNEL-{self.id}] Found profile ID via metadata hash fallback "
-                    f"for stream {stream_id}"
+                    f"Found profile ID via metadata hash fallback "
+                    f"for stream {stream_id} for channel {self.uuid}"
                 )
 
         # Clean up primary keys
@@ -570,8 +570,8 @@ class Channel(models.Model):
         # If no profile_id found in either source, we can't decrement
         if not profile_id:
             logger.warning(
-                f"[CHANNEL-{self.id}] Cannot decrement profile counter - no profile ID "
-                f"found for stream {stream_id} (possible leak)"
+                f"Cannot decrement profile counter - no profile ID "
+                f"found for stream {stream_id} (possible leak) for channel {self.uuid}"
             )
             return False
 
@@ -582,12 +582,12 @@ class Channel(models.Model):
             profile_id = int(profile_id)
         except (ValueError, AttributeError) as e:
             logger.error(
-                f"[CHANNEL-{self.id}] Invalid profile_id type: {e}, value: {profile_id}"
+                f"Invalid profile_id type: {e}, value: {profile_id} for channel {self.uuid}"
             )
             return False
 
         logger.debug(
-            f"[CHANNEL-{self.id}] Found profile ID {profile_id} associated with stream {stream_id}"
+            f"Found profile ID {profile_id} associated with stream {stream_id} for channel {self.uuid}"
         )
 
         # Step 3: Decrement connection counter
@@ -597,18 +597,18 @@ class Channel(models.Model):
         if current_count > 0:
             redis_client.decr(profile_connections_key)
             logger.info(
-                f"[CHANNEL-{self.id}] Decremented profile {profile_id} connections: "
-                f"{current_count} -> {current_count - 1}"
+                f"Decremented profile {profile_id} connections: "
+                f"{current_count} -> {current_count - 1} for channel {self.uuid}"
             )
         elif current_count == 0:
             logger.warning(
-                f"[CHANNEL-{self.id}] Profile {profile_id} connection count already 0, "
+                f"Profile {profile_id} connection count already 0 for channel {self.uuid}, "
                 f"possible double-decrement or counter leak detected"
             )
             return False  # Failed to decrement (already at 0)
         else:
             logger.error(
-                f"[CHANNEL-{self.id}] CRITICAL: Negative connection count detected for "
+                f"CRITICAL: Negative connection count detected for channel {self.uuid} "
                 f"profile {profile_id}: {current_count} - data corruption!"
             )
             return False
