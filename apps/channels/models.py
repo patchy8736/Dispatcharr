@@ -176,9 +176,12 @@ class Stream(models.Model):
 
         return stream_profile
 
-    def release_stream(self):
+    def release_stream(self) -> bool:
         """
         Called when a stream is finished to release the lock.
+
+        Returns:
+            bool: True if stream was successfully released, False otherwise
         """
         redis_client = RedisClient.get_client()
 
@@ -186,14 +189,14 @@ class Stream(models.Model):
         # Get the matched profile for cleanup
         profile_id = redis_client.get(f"stream_profile:{stream_id}")
         if not profile_id:
-            logger.debug("Invalid profile ID pulled from stream index")
-            return
+            logger.debug(f"[STREAM-{stream_id}] Invalid profile ID pulled from stream index")
+            return False
 
         redis_client.delete(f"stream_profile:{stream_id}")  # Remove profile association
 
         profile_id = int(profile_id)
         logger.debug(
-            f"Found profile ID {profile_id} associated with stream {stream_id}"
+            f"[STREAM-{stream_id}] Found profile ID {profile_id} associated with stream"
         )
 
         profile_connections_key = f"profile_connections:{profile_id}"
@@ -202,6 +205,8 @@ class Stream(models.Model):
         current_count = int(redis_client.get(profile_connections_key) or 0)
         if current_count > 0:
             redis_client.decr(profile_connections_key)
+
+        return True
 
 
 class ChannelManager(models.Manager):
@@ -498,7 +503,7 @@ class Channel(models.Model):
 
         return None, None, error_reason
 
-    def release_stream(self):
+    def release_stream(self) -> bool:
         """
         Called when a stream is finished to release the lock.
 

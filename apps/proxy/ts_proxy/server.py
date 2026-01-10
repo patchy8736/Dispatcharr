@@ -1344,7 +1344,9 @@ class ProxyServer:
                 logger.warning(f"Failed to release stream for channel {channel_id}")
         except:
             stream = Stream.objects.get(stream_hash=channel_id)
-            stream.release_stream()
+            success = stream.release_stream()
+            if not success:
+                logger.warning(f"Failed to release stream for channel {channel_id}")
 
         if not self.redis_client:
             return 0
