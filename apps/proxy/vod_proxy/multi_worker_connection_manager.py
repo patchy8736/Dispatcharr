@@ -93,7 +93,9 @@ class SerializableConnectionState:
                  content_name: str = None, client_ip: str = None,
                  client_user_agent: str = None, utc_start: str = None,
                  utc_end: str = None, offset: str = None,
-                 worker_id: str = None, connection_type: str = "redis_backed"):
+                 worker_id: str = None, connection_type: str = "redis_backed",
+                 # Username tracking fields (for XC API access)
+                 username: str = None, display_name: str = None, access_type: str = None):
         self.session_id = session_id
         self.stream_url = stream_url
         self.headers = headers
@@ -117,6 +119,11 @@ class SerializableConnectionState:
         self.worker_id = worker_id
         self.connection_type = connection_type
         self.created_at = time.time()
+
+        # Username tracking fields (for XC API access)
+        self.username = username
+        self.display_name = display_name
+        self.access_type = access_type
 
         # Additional tracking fields
         self.bytes_sent = 0
@@ -153,6 +160,10 @@ class SerializableConnectionState:
             'worker_id': self.worker_id or '',
             'connection_type': self.connection_type or 'redis_backed',
             'created_at': str(self.created_at),
+            # Username tracking fields
+            'username': self.username or '',
+            'display_name': self.display_name or '',
+            'access_type': self.access_type or '',
             # Additional tracking fields
             'bytes_sent': str(self.bytes_sent),
             'position_seconds': str(self.position_seconds),
@@ -184,7 +195,11 @@ class SerializableConnectionState:
             utc_end=data.get('utc_end') or '',
             offset=data.get('offset') or '',
             worker_id=data.get('worker_id') or None,
-            connection_type=data.get('connection_type', 'redis_backed')
+            connection_type=data.get('connection_type', 'redis_backed'),
+            # Username tracking fields
+            username=data.get('username') or None,
+            display_name=data.get('display_name') or None,
+            access_type=data.get('access_type') or None
         )
         obj.last_activity = float(data.get('last_activity', time.time()))
         obj.request_count = int(data.get('request_count', 0))
@@ -281,7 +296,9 @@ class RedisBackedVODConnection:
                          content_name: str = None, client_ip: str = None,
                          client_user_agent: str = None, utc_start: str = None,
                          utc_end: str = None, offset: str = None,
-                         worker_id: str = None) -> bool:
+                         worker_id: str = None,
+                         # Username tracking fields (for XC API access)
+                         username: str = None, display_name: str = None, access_type: str = None) -> bool:
         """Create a new connection state in Redis with consolidated session metadata"""
         if not self._acquire_lock():
             logger.warning(f"[{self.session_id}] Could not acquire lock for connection creation")
@@ -309,7 +326,11 @@ class RedisBackedVODConnection:
                 utc_start=utc_start,
                 utc_end=utc_end,
                 offset=offset,
-                worker_id=worker_id
+                worker_id=worker_id,
+                # Username tracking fields (for XC API access)
+                username=username,
+                display_name=display_name,
+                access_type=access_type
             )
             success = self._save_connection_state(state)
 
@@ -761,7 +782,9 @@ class MultiWorkerVODConnectionManager:
 
     def stream_content_with_session(self, session_id, content_obj, stream_url, m3u_profile,
                                   client_ip, client_user_agent, request,
-                                  utc_start=None, utc_end=None, offset=None, range_header=None):
+                                  utc_start=None, utc_end=None, offset=None, range_header=None,
+                                  # Username tracking fields (for XC API access)
+                                  username=None, display_name=None, access_type=None):
         """Stream content with Redis-backed persistent connection"""
 
         # Generate client ID
@@ -858,7 +881,11 @@ class MultiWorkerVODConnectionManager:
                     utc_start=utc_start,
                     utc_end=utc_end,
                     offset=str(offset) if offset else None,
-                    worker_id=self.worker_id
+                    worker_id=self.worker_id,
+                    # Username tracking fields (for XC API access)
+                    username=username,
+                    display_name=display_name,
+                    access_type=access_type
                 ):
                     logger.error(f"[{client_id}] Worker {self.worker_id} - Failed to create Redis connection")
                     # Roll back the profile slot reservation since connection failed

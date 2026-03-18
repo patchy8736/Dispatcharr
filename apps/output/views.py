@@ -2955,7 +2955,7 @@ def xc_movie_stream(request, username, password, stream_id, extension):
     vod_url = reverse('proxy:vod_proxy:vod_stream', kwargs={
         'content_type': 'movie',
         'content_id': movie_relation.movie.uuid
-    })
+    }) + f"?xc_username={username}"
 
     return HttpResponseRedirect(vod_url)
 
@@ -2989,7 +2989,7 @@ def xc_series_stream(request, username, password, stream_id, extension):
     vod_url = reverse('proxy:vod_proxy:vod_stream', kwargs={
         'content_type': 'episode',
         'content_id': episode_relation.episode.uuid
-    })
+    }) + f"?xc_username={username}"
 
     return HttpResponseRedirect(vod_url)
 

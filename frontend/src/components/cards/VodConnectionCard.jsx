@@ -72,6 +72,20 @@ const ClientDetails = ({ connection, connectionStartTime }) => {
         </Text>
       </Group>
 
+      {connection.username && (
+        <Group gap={8}>
+          <Text size="xs" fw={500} c="dimmed" miw={80}>
+            User:
+          </Text>
+          <Text size="xs">
+            {connection.display_name || connection.username}
+            {connection.display_name && connection.display_name !== connection.username && (
+              <Text size="xs" c="dimmed"> ({connection.username})</Text>
+            )}
+          </Text>
+        </Group>
+      )}
+
       {connection.connected_at && (
         <Group gap={8}>
           <Text size="xs" fw={500} c="dimmed" miw={80}>
@@ -408,6 +422,16 @@ const VodConnectionCard = ({ vodContent, stopVODClient }) => {
                 <Text size="sm" ff={'monospace'}>
                   {connection.client_ip || 'Unknown IP'}
                 </Text>
+                {connection.username && (
+                  <>
+                    <Text size="sm" c="dimmed" style={{ lineHeight: '1' }}>•</Text>
+                    <Tooltip label={`XC API User: ${connection.username}`}>
+                      <Text size="sm" fw={500} style={{ lineHeight: '1' }}>
+                        {connection.display_name || connection.username}
+                      </Text>
+                    </Tooltip>
+                  </>
+                )}
               </Group>
 
               <Group gap={8}>

@@ -144,6 +144,15 @@ class ChannelStatus:
                 'user_agent': client_data.get(b'user_agent', b'unknown').decode('utf-8'),
                 'worker_id': client_data.get(b'worker_id', b'unknown').decode('utf-8'),
             }
+            # Add display_name if available (first name), otherwise use username
+            if b'display_name' in client_data:
+                client_info['username'] = client_data[b'display_name'].decode('utf-8')
+            elif b'username' in client_data:
+                client_info['username'] = client_data[b'username'].decode('utf-8')
+
+            # Add access_type if available (M3U, HDHR, or XC)
+            if b'access_type' in client_data:
+                client_info['access_type'] = client_data[b'access_type'].decode('utf-8')
 
             if b'connected_at' in client_data:
                 connected_at = float(client_data[b'connected_at'].decode('utf-8'))
@@ -471,6 +480,21 @@ class ChannelStatus:
                     ip_address_bytes = proxy_server.redis_client.hget(client_key, 'ip_address')
                     if ip_address_bytes:
                         client_info['ip_address'] = safe_decode(ip_address_bytes)
+
+                    # Get display_name if available (first name), otherwise use username
+                    display_name_bytes = proxy_server.redis_client.hget(client_key, 'display_name')
+                    if display_name_bytes:
+                        client_info['username'] = safe_decode(display_name_bytes)
+                    else:
+                        # Get username if available (XC API access)
+                        username_bytes = proxy_server.redis_client.hget(client_key, 'username')
+                        if username_bytes:
+                            client_info['username'] = safe_decode(username_bytes)
+
+                    # Get access_type if available (M3U, HDHR, or XC)
+                    access_type_bytes = proxy_server.redis_client.hget(client_key, 'access_type')
+                    if access_type_bytes:
+                        client_info['access_type'] = safe_decode(access_type_bytes)
 
                     connected_at_bytes = proxy_server.redis_client.hget(client_key, 'connected_at')
                     if connected_at_bytes:

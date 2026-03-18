@@ -71,6 +71,45 @@ def stream_ts(request, channel_id):
                 )
                 break
 
+        # Determine access method based on request path/referer
+        # This is called from stream_ts which is accessed via /proxy/ts/stream/<channel_id>
+        # Check if this request came from XC API (stream_xc sets xc_username attribute)
+        access_type = None
+        username = None
+        display_name = None
+
+        # Check if this request came from XC API
+        if hasattr(request, 'xc_username'):
+            access_type = "XC"
+            username = request.xc_username
+            # Get user's first name to use as display name
+            try:
+                user = User.objects.filter(username=username).first()
+                if user and user.first_name:
+                    display_name = user.first_name
+                else:
+                    display_name = username  # Fallback to username if no first name
+            except Exception as e:
+                logger.warning(f"Could not retrieve user first name for {username}: {e}")
+                display_name = username  # Fallback to username on error
+            logger.debug(f"[{client_id}] XC API access by user: {username}, display name: {display_name}")
+        else:
+            # Check referer header to determine access method
+            referer = request.META.get('HTTP_REFERER', '')
+            request_path = request.META.get('PATH_INFO', '')
+
+            # Check if this is coming from HDHR (hdhr URLs or HDHR user agents)
+            if '/hdhr/' in referer or 'HDHomeRun' in (client_user_agent or ''):
+                access_type = "HDHR"
+            # Check if coming from output/stream endpoint (M3U playlist)
+            elif '/output/stream/' in referer or request_path.startswith('/output/stream/'):
+                access_type = "M3U"
+            # Default to M3U if we can't determine
+            else:
+                access_type = "M3U"
+
+        logger.debug(f"[{client_id}] Access type determined as: {access_type}")
+
         # Check if we need to reinitialize the channel
         needs_initialization = True
         channel_state = None
@@ -516,7 +555,7 @@ def stream_ts(request, channel_id):
         # Register client
         buffer = proxy_server.stream_buffers[channel_id]
         client_manager = proxy_server.client_managers[channel_id]
-        client_manager.add_client(client_id, client_ip, client_user_agent)
+        client_manager.add_client(client_id, client_ip, client_user_agent, username, access_type, display_name)
         logger.info(f"[{client_id}] Client registered with channel {channel_id}")
 
         # Create a stream generator for this client
@@ -583,6 +622,9 @@ def stream_xc(request, username, password, channel_id):
             return JsonResponse({"error": "Not found"}, status=404)
     else:
         channel = get_object_or_404(Channel, id=channel_id)
+
+    # Store XC API username in request for access tracking
+    request._request.xc_username = username
 
     # @TODO: we've got the  file 'type' via extension, support this when we support multiple outputs
     return stream_ts(request._request, str(channel.uuid))

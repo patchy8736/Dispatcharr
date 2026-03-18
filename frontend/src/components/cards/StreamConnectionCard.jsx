@@ -323,6 +323,37 @@ const StreamConnectionCard = ({
           </Tooltip>
         ),
       },
+      {
+        header: 'User',
+        id: 'user',
+        size: 100,
+        accessorFn: (row) => {
+          if (row.username) return row.username;
+          if (row.access_type) return row.access_type;
+          return 'Unknown';
+        },
+        cell: ({ cell, row }) => {
+          const value = cell.getValue();
+          const isXC = row.original.access_type === 'XC';
+          const isHDHR = row.original.access_type === 'HDHR';
+          const isM3U = row.original.access_type === 'M3U';
+          return (
+            <Tooltip
+              label={
+                isXC
+                  ? `XC API User: ${value}`
+                  : isHDHR
+                    ? 'HDHomeRun Access'
+                    : isM3U
+                      ? 'M3U Playlist Access'
+                      : 'Unknown Access Type'
+              }
+            >
+              <Text size="xs">{value}</Text>
+            </Tooltip>
+          );
+        },
+      },
       // Updated Connected column with tooltip
       {
         id: 'connected',
@@ -383,6 +414,7 @@ const StreamConnectionCard = ({
     }),
     headerCellRenderFns: {
       ip_address: renderHeaderCell,
+      user: renderHeaderCell,
       connected: renderHeaderCell,
       duration: renderHeaderCell,
       actions: renderHeaderCell,

@@ -110,6 +110,28 @@ class VODStreamView(View):
 
             logger.info(f"[VOD-CLIENT] Client info - IP: {client_ip}, User-Agent: {client_user_agent[:50]}...")
 
+            # Detect XC API username from query parameter (passed from xc_movie_stream/xc_series_stream)
+            xc_username = request.GET.get('xc_username')
+            username = None
+            display_name = None
+            access_type = None
+
+            if xc_username:
+                access_type = "XC"
+                username = xc_username
+                # Fetch user's first name as display name
+                try:
+                    from apps.accounts.models import User
+                    user = User.objects.filter(username=username).first()
+                    if user and user.first_name:
+                        display_name = user.first_name
+                    else:
+                        display_name = username
+                except Exception as e:
+                    logger.warning(f"Could not retrieve user first name for {username}: {e}")
+                    display_name = username
+                logger.debug(f"[VOD-USER] XC API access by user: {username}, display name: {display_name}")
+
             # If no session ID, create one and redirect to path-based URL
             if not session_id:
                 new_session_id = f"vod_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
@@ -212,7 +234,11 @@ class VODStreamView(View):
                 utc_start=utc_start,
                 utc_end=utc_end,
                 offset=offset,
-                range_header=range_header
+                range_header=range_header,
+                # Username tracking fields (for XC API access)
+                username=username,
+                display_name=display_name,
+                access_type=access_type
             )
 
             logger.info(f"[VOD-SUCCESS] Stream response created successfully, type: {type(response)}")
@@ -953,6 +979,10 @@ class VODStatsView(View):
                                 'last_known_position': last_known_position,  # Include raw position for debugging
                                 'last_position_update': last_position_update,  # Include timestamp for frontend use
                                 'bytes_sent': int(combined_data.get('bytes_sent', 0)),
+                                # Username tracking fields (for XC API access)
+                                'username': combined_data.get('username', ''),
+                                'display_name': combined_data.get('display_name', ''),
+                                'access_type': combined_data.get('access_type', ''),
                                 # Seek/range information for position calculation and frontend display
                                 'last_seek_byte': int(combined_data.get('last_seek_byte', 0)),
                                 'last_seek_percentage': float(combined_data.get('last_seek_percentage', 0.0)),
